@@ -3927,6 +3927,42 @@ input:checked + .slider:before {
             </div>
             <input type="range" min="0.1" max="5" step="0.1" value="3.5" class="ratio-slider" id="maxDelaySlider">
           </div>
+          <!-- 拼字卡功能 -->
+          <div class="ratio-item" style="margin-top:8px; border-top:1px solid rgba(138,127,141,0.15); padding-top:14px;">
+            <div class="ratio-label">
+              <span>🃏 拼字卡回复</span>
+              <label class="switch" style="margin-left:auto;">
+                <input type="checkbox" id="spliceCardToggle" onchange="window.chatApp?.onSpliceCardToggle()">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <p style="font-size:0.75rem; color:#999; margin:4px 0 10px;">开启后对方回复时按设定概率将多条字卡拼成一条消息发送</p>
+          </div>
+          <div id="spliceCardSettings" style="display:none;">
+            <div class="ratio-item">
+              <div class="ratio-label">
+                <span>拼字卡触发概率</span>
+                <span class="ratio-value" id="spliceCardProbValue">30%</span>
+              </div>
+              <input type="range" min="0" max="100" step="5" value="30" class="ratio-slider" id="spliceCardProbSlider"
+                     oninput="document.getElementById('spliceCardProbValue').textContent=this.value+'%'; window.chatApp?.saveSpliceCardSettings();">
+            </div>
+            <div class="ratio-item" style="flex-direction:column;align-items:flex-start;gap:6px;">
+              <span style="font-size:0.85rem;color:#5a4a5a;">拼字卡抽取条数</span>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:0.82rem;color:#999;">最少</span>
+                <input type="number" class="ratio-input" id="spliceCardMin" min="2" max="20" value="2"
+                       oninput="window.chatApp?.saveSpliceCardSettings()"
+                       style="width:54px;border:1px solid rgba(138,127,141,0.3);border-radius:8px;padding:4px 6px;font-size:0.85rem;background:rgba(255,255,255,0.6);">
+                <span style="color:#a99cad;font-size:0.95rem;">—</span>
+                <input type="number" class="ratio-input" id="spliceCardMax" min="2" max="20" value="5"
+                       oninput="window.chatApp?.saveSpliceCardSettings()"
+                       style="width:54px;border:1px solid rgba(138,127,141,0.3);border-radius:8px;padding:4px 6px;font-size:0.85rem;background:rgba(255,255,255,0.6);">
+                <span style="font-size:0.82rem;color:#999;">条</span>
+              </div>
+              <p style="font-size:0.72rem;color:#bbb;margin:0;">从所有未禁用分组的字卡库中随机抽取，各条之间用逗号连接</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -4489,7 +4525,11 @@ this.setStoredData(this.SEND_SETTINGS_KEY, {
     maxMessageCount: 3,
     autoSendFrequency: 600000,
     minReplyDelay: 1.5,
-    maxReplyDelay: 300      // 5分钟 = 300秒
+    maxReplyDelay: 300,     // 5分钟 = 300秒
+    spliceCardEnabled: false,
+    spliceCardProb: 30,
+    spliceCardMin: 2,
+    spliceCardMax: 5
 });
         
         // 默认外观设置
@@ -4883,7 +4923,11 @@ getAllEnabledPhrases() {
             maxMessageCount: 3,
             autoSendFrequency: 600000,
             minReplyDelay: 1.5,
-            maxReplyDelay: 300
+            maxReplyDelay: 300,
+            spliceCardEnabled: false,
+            spliceCardProb: 30,
+            spliceCardMin: 2,
+            spliceCardMax: 5
         };
     }
     
@@ -6481,8 +6525,61 @@ if (maxDelayValue && this.appData.sendSettings) {
     const maxDelayInMinutes = Math.min((this.appData.sendSettings.maxReplyDelay || 300) / 60, 5);
     maxDelayValue.textContent = `${maxDelayInMinutes.toFixed(1)}分钟`;
 }
+
+        // 拼字卡设置初始化
+        const spliceEnabled = this.appData.sendSettings?.spliceCardEnabled || false;
+        const spliceProb    = this.appData.sendSettings?.spliceCardProb ?? 30;
+        const spliceMin     = this.appData.sendSettings?.spliceCardMin ?? 2;
+        const spliceMax     = this.appData.sendSettings?.spliceCardMax ?? 5;
+        const spliceToggle  = document.getElementById('spliceCardToggle');
+        const splicePanel   = document.getElementById('spliceCardSettings');
+        if (spliceToggle) spliceToggle.checked = spliceEnabled;
+        if (splicePanel)  splicePanel.style.display = spliceEnabled ? '' : 'none';
+        const spliceSlider = document.getElementById('spliceCardProbSlider');
+        const spliceVal    = document.getElementById('spliceCardProbValue');
+        if (spliceSlider) spliceSlider.value = spliceProb;
+        if (spliceVal)    spliceVal.textContent = `${spliceProb}%`;
+        const spliceMinEl = document.getElementById('spliceCardMin');
+        const spliceMaxEl = document.getElementById('spliceCardMax');
+        if (spliceMinEl) spliceMinEl.value = spliceMin;
+        if (spliceMaxEl) spliceMaxEl.value = spliceMax;
     }
     
+    // 拼字卡：开关切换
+    onSpliceCardToggle() {
+        const toggle = document.getElementById('spliceCardToggle');
+        const panel  = document.getElementById('spliceCardSettings');
+        if (!this.appData.sendSettings) this.appData.sendSettings = {};
+        this.appData.sendSettings.spliceCardEnabled = toggle?.checked || false;
+        if (panel) panel.style.display = this.appData.sendSettings.spliceCardEnabled ? '' : 'none';
+        this.saveAllData();
+    }
+
+    // 拼字卡：保存概率/条数
+    saveSpliceCardSettings() {
+        if (!this.appData.sendSettings) this.appData.sendSettings = {};
+        const prob   = parseInt(document.getElementById('spliceCardProbSlider')?.value) || 30;
+        const minVal = Math.max(2, parseInt(document.getElementById('spliceCardMin')?.value) || 2);
+        const maxVal = Math.max(minVal, parseInt(document.getElementById('spliceCardMax')?.value) || 5);
+        this.appData.sendSettings.spliceCardProb = prob;
+        this.appData.sendSettings.spliceCardMin  = minVal;
+        this.appData.sendSettings.spliceCardMax  = maxVal;
+        this.saveAllData();
+    }
+
+    // 拼字卡：从所有未禁用分组中随机抽 n 条，逗号拼接
+    buildSpliceCardText() {
+        // 直接使用 ChatApp 中已加载的 responsePhrases（包含所有未禁用分组词条）
+        const phrases = this.appData.responsePhrases || [];
+        if (phrases.length === 0) return null;
+        const minC = Math.max(2, this.appData.sendSettings?.spliceCardMin ?? 2);
+        const maxC = Math.max(minC, this.appData.sendSettings?.spliceCardMax ?? 5);
+        const count = Math.floor(Math.random() * (maxC - minC + 1)) + minC;
+        const shuffled = [...phrases].sort(() => Math.random() - 0.5);
+        const picked = shuffled.slice(0, Math.min(count, shuffled.length));
+        return picked.join('，');
+    }
+
     initAppearanceSettingsUI() {
         const appTitleInput = document.getElementById('appTitleInput');
         const appSubtitleInput = document.getElementById('appSubtitleInput');
@@ -6926,6 +7023,36 @@ const delay = minDelay + Math.random() * (maxDelay - minDelay);
         if (messageId && this.appData.readNoReplyMessageIds) {
             const index = this.appData.readNoReplyMessageIds.indexOf(messageId);
             if (index > -1) this.appData.readNoReplyMessageIds.splice(index, 1);
+        }
+
+        // 拼字卡：触发则只发拼字卡，不再发普通回复（互斥）
+        const spliceEnabled = this.appData.sendSettings?.spliceCardEnabled === true;
+        const spliceProb    = (this.appData.sendSettings?.spliceCardProb ?? 30) / 100;
+        if (spliceEnabled && Math.random() < spliceProb) {
+            const spliceText = this.buildSpliceCardText();
+            if (spliceText) {
+                let groupMember = null;
+                if (this.appData.groupSettings?.enabled && this.appData.groupSettings.members?.length > 0) {
+                    const m = this.appData.groupSettings.members[Math.floor(Math.random() * this.appData.groupSettings.members.length)];
+                    groupMember = { name: m.name, avatar: m.avatar || null };
+                }
+                const spliceMsg = {
+                    id: this.dataManager.generateMessageId(),
+                    isSticker: false,
+                    text: spliceText,
+                    sender: 'other',
+                    time: this.getCurrentTime(),
+                    read: true,
+                    groupMember
+                };
+                this.appData.messages.push(spliceMsg);
+                this.renderMessages();
+                this.showNotification('对方发来了拼字卡消息');
+                this.appData.waitingForReply = false;
+                this.saveAllData();
+                return; // 拼字卡触发后直接返回，不再发普通回复
+            }
+            // buildSpliceCardText 返回 null（词条库空）则降级走正常回复
         }
         
         const messageCount = Math.floor(Math.random() * (this.appData.sendSettings?.maxMessageCount || 3)) + 1;
